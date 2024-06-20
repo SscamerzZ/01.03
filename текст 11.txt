@@ -1,0 +1,27 @@
+CREATE DATABASE LapkiShop;
+USE LapkiShop;
+
+CREATE TABLE Pets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category VARCHAR(50),
+    breed VARCHAR(50),
+    nickname VARCHAR(50),
+    color VARCHAR(50),
+    age INT,
+    price DECIMAL(10, 2),
+    sale_date DATE,
+    delivery_status VARCHAR(50),
+    client_email VARCHAR(50)
+);
+
+INSERT INTO Pets (category, breed, nickname, color, age, price, sale_date, delivery_status, client_email) VALUES
+('Собака', 'Лабрадор', 'Тучик', 'Черный', 2, 7000, NULL, NULL, NULL),
+('Кошка', 'Персидская', 'Мурка', 'Серый', 2, 2000, NULL, NULL, NULL),
+('Птица', 'Канарейка', 'Кеша', 'Зеленый', 3, 3000, NULL, NULL, NULL);
+
+CREATE PROCEDURE UpdateDeliveryStatus(IN pet_id INT, IN new_status VARCHAR(50))
+BEGIN
+    UPDATE Pets
+    SET delivery_status = new_status
+    WHERE id = pet_id;
+END;
