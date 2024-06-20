@@ -1,0 +1,66 @@
+import sys
+from PyQt6 import QtWidgets, QtSql, uic
+from PyQt6.QtWidgets import QMessageBox
+import mysql.connector
+
+# Подключение к базе данных
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="password",
+    database="LapkiShop"
+)
+cursor = db.cursor()
+
+# Загрузка интерфейса
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super(MainWindow, self).__init__()
+        uic.loadUi('form.ui', self)
+        
+        # Подключение кнопок к функциям
+        self.pushButtonRefresh.clicked.connect(self.refreshList)
+        self.pushButtonAdd.clicked.connect(self.addPet)
+        self.pushButtonUpdateStatus.clicked.connect(self.updateStatus)
+        
+        # Настройка модели и таблицы
+        self.model = QtSql.QSqlTableModel(self)
+        self.tableViewPets.setModel(self.model)
+        self.refreshList()
+
+    def refreshList(self):
+        try:
+            self.model.setTable('Pets')
+            self.model.select()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def addPet(self):
+        # Логика для добавления нового питомца
+        pass
+
+    def updateStatus(self):
+        try:
+            # Получаем выбранную строку
+            selected = self.tableViewPets.selectionModel().selectedRows()
+            if not selected:
+                raise Exception("No pet selected")
+            
+            # Извлекаем ID выбранного питомца
+            pet_id = selected[0].data()
+            new_status = "получен"  # Пример нового статуса, можно сделать ввод через диалог
+
+            # Вызов хранимой процедуры
+            cursor.callproc('UpdateDeliveryStatus', (pet_id, new_status))
+            db.commit()
+            
+            QMessageBox.information(self, "Success", "Status updated successfully")
+            self.refreshList()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
