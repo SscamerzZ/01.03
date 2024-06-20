@@ -1,0 +1,47 @@
+import sys
+from PyQt6 import QtWidgets, uic
+import mysql.connector
+from PyQt6.QtWidgets import QMessageBox
+
+# Подключение к базе данных
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="password",
+    database="LapkiShop"
+)
+cursor = db.cursor()
+
+class QwSql:
+    def userProcess(self, login, password):
+        cur = db.cursor()
+        cur.execute(f"CALL AuthenticateUser('{login}', '{password}')")
+        data_qw = cur.fetchall()
+        print(data_qw[0][0])
+        cur.close()
+        db.commit()
+        return data_qw
+
+class Main(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super(Main, self).__init__(parent)
+        uic.loadUi('form_ui.py', self)
+        self.setupUi(self)
+        self.pushButton.clicked.connect(self.loginUser)
+
+    def loginUser(self):
+        try:
+            login = self.ui.lineEdit.text()
+            password = self.ui.lineEdit_2.text()
+            user = QwSql().userProcess(login, password)
+            self.ui.label.setText(user[0][0])
+            self.ui.label.adjustSize()
+        except Exception as e:
+            print(e)
+            QMessageBox.critical(self, "Error", str(e))
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = Main()
+    window.show()
+    sys.exit(app.exec())
