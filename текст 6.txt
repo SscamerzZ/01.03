@@ -1,0 +1,46 @@
+import sys
+from PyQt6 import QtWidgets, uic
+import mysql.connector
+from PyQt6.QtWidgets import QMessageBox
+
+# Подключение к базе данных
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="password",
+    database="LapkiShop"
+)
+cursor = db.cursor()
+
+class PetShopApp(QtWidgets.QMainWindow):
+    def __init__(self):
+        super(PetShopApp, self).__init__()
+        uic.loadUi('pet_shop_ui.py', self)
+        self.load_available_pets()
+        self.sellPetButton.clicked.connect(self.sell_pet)
+
+    def load_available_pets(self):
+        self.availablePetsTable.setRowCount(0)
+        cursor.execute("SELECT * FROM AvailablePets")
+        for row_number, row_data in enumerate(cursor.fetchall()):
+            self.availablePetsTable.insertRow(row_number)
+            for column_number, data in enumerate(row_data):
+                self.availablePetsTable.setItem(row_number, column_number, QtWidgets.QTableWidgetItem(str(data)))
+
+    def sell_pet(self):
+        pet_id = int(self.petIdInput.text())
+        client_email = self.clientEmailInput.text()
+        sale_date = self.saleDateInput.date().toString("yyyy-MM-dd")
+
+        try:
+            cursor.callproc('SellPet', [pet_id, client_email, sale_date])
+            db.commit()
+            self.load_available_pets()
+            QMessageBox.information(self, "Success", "Pet sold successfully!")
+        except mysql.connector.Error as err:
+            QMessageBox.critical(self, "Error", f"An error occurred: {err}")
+
+app = QtWidgets.QApplication(sys.argv)
+window = PetShopApp()
+window.show()
+app.exec()

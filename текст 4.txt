@@ -1,0 +1,133 @@
+-- Создание базы данных
+CREATE DATABASE LapkiShop;
+USE LapkiShop;
+
+-- Создание таблиц
+CREATE TABLE Категория (
+    ID INT PRIMARY KEY AUTO_INCREMENT,
+    Наименование VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE Порода (
+    ID INT PRIMARY KEY AUTO_INCREMENT,
+    Наименование VARCHAR(255) NOT NULL,
+    Категория_ID INT,
+    FOREIGN KEY (Категория_ID) REFERENCES Категория(ID)
+);
+
+CREATE TABLE Клиент (
+    ID INT PRIMARY KEY AUTO_INCREMENT,
+    Email VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE Питомец (
+    ID INT PRIMARY KEY AUTO_INCREMENT,
+    Кличка VARCHAR(255) NOT NULL,
+    Окрас VARCHAR(255) NOT NULL,
+    Возраст INT NOT NULL,
+    Порода_ID INT,
+    Цена DECIMAL(10, 2) NOT NULL,
+    Дата_продажи DATE,
+    Статус_доставки VARCHAR(255),
+    Клиент_ID INT,
+    FOREIGN KEY (Порода_ID) REFERENCES Порода(ID),
+    FOREIGN KEY (Клиент_ID) REFERENCES Клиент(ID)
+);
+
+CREATE TABLE Событие_доставки (
+    ID INT PRIMARY KEY AUTO_INCREMENT,
+    Питомец_ID INT,
+    Дата DATETIME NOT NULL,
+    Статус VARCHAR(255) NOT NULL,
+    FOREIGN KEY (Питомец_ID) REFERENCES Питомец(ID)
+);
+
+-- Заполнение таблиц данными
+INSERT INTO Категория (Наименование) VALUES 
+('Собака'), 
+('Кошка'), 
+('Птица');
+
+INSERT INTO Порода (Наименование, Категория_ID) VALUES 
+('Лабрадор', 1), 
+('Персидская', 2), 
+('Пекинес', 1), 
+('Сфинкс', 2), 
+('Ара', 3), 
+('Канарейка', 3);
+
+INSERT INTO Клиент (Email) VALUES 
+('Cli1@ya.ru'), 
+('Cli2@ya.ru');
+
+INSERT INTO Питомец (Кличка, Окрас, Возраст, Порода_ID, Цена, Дата_продажи, Статус_доставки, Клиент_ID) VALUES
+('Тучик', 'Черный', 2, 1, 7000, NULL, NULL, NULL),
+('Мурка', 'Серый', 3, 2, 2000, NULL, NULL, NULL),
+('Кеша', 'Зеленый', 8, 5, 8000, NULL, NULL, NULL),
+('Рекс', 'Рыжий', 6, 1, 8000, NULL, NULL, NULL),
+('Барсик', 'Серебристый', 5, 2, 7000, '2024-05-20', 'получен', 1),
+('Кеша', 'Зеленый', 8, 5, 8000, NULL, NULL, NULL),
+('Снежок', 'Серебристый', 4, 2, 6000, NULL, NULL, NULL),
+('Кеша', 'Желтый', 4, 6, 2200, '2024-05-15', 'в пути', 2);
+
+INSERT INTO Событие_доставки (Питомец_ID, Дата, Статус) VALUES
+(5, '2024-05-20 12:00', 'получен'),
+(8, '2024-05-15 12:00', 'в пути');
+
+-- Создание представления
+CREATE VIEW AvailablePets AS
+SELECT 
+    k.Наименование AS Категория, 
+    p.Наименование AS Порода, 
+    pet.Кличка, 
+    pet.Окрас, 
+    pet.Возраст, 
+    pet.Цена
+FROM 
+    Питомец pet
+JOIN 
+    Порода p ON pet.Порода_ID = p.ID
+JOIN 
+    Категория k ON p.Категория_ID = k.ID
+WHERE 
+    pet.Статус_доставки IS NULL;
+
+-- Создание хранимой процедуры
+DELIMITER //
+CREATE PROCEDURE SellPet (
+    IN petID INT,
+    IN clientEmail VARCHAR(255),
+    IN saleDate DATE
+)
+BEGIN
+    DECLARE clientID INT;
+    SET clientID = (SELECT ID FROM Клиент WHERE Email = clientEmail);
+
+    IF clientID IS NULL THEN
+        INSERT INTO Клиент (Email) VALUES (clientEmail);
+        SET clientID = LAST_INSERT_ID();
+    END IF;
+
+    UPDATE Питомец
+    SET Дата_продажи = saleDate,
+        Клиент_ID = clientID,
+        Статус_доставки = 'в пути'
+    WHERE ID = petID;
+
+    INSERT INTO Событие_доставки (Питомец_ID, Дата, Статус)
+    VALUES (petID, NOW(), 'в пути');
+END //
+DELIMITER ;
+
+-- Создание триггера
+DELIMITER //
+CREATE TRIGGER UpdateDeliveryStatus
+AFTER UPDATE ON Питомец
+FOR EACH ROW
+BEGIN
+    IF NEW.Статус_доставки <> OLD.Статус_доставки THEN
+        INSERT INTO Событие_доставки (Питомец_ID, Дата, Статус)
+        VALUES (NEW.ID, NOW(), NEW.Статус_доставки);
+    END IF;
+END //
+DELIMITER ;
