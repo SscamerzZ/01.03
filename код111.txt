@@ -1,0 +1,310 @@
+import kivy
+from kivy.app import App
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.lang import Builder
+import mysql.connector
+from kivy.uix.popup import Popup
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.boxlayout import BoxLayout
+from kivy.animation import Animation
+
+kivy.require('2.0.0')
+
+
+# Подключение к базе данных MySQL
+def get_db_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",  # Введите ваш пароль
+        database="worktime_db"
+    )
+
+
+# Экран авторизации
+class LoginScreen(Screen):
+    def login_user(self):
+        username = self.ids.username.text
+        password = self.ids.password.text
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
+        user = cursor.fetchone()
+
+        if user:
+            if user[3] == 'admin':  # Разграничение прав
+                app.root.current = "admin_screen"
+            else:
+                app.root.current = "user_screen"
+                # Получаем доступ к экрану пользователя и показываем приветствие
+                user_screen = self.manager.get_screen('user_screen')
+                user_screen.show_welcome_message(user[1])  # user[1] - это логин пользователя
+            self.show_popup("Login successful!")
+        else:
+            self.show_popup("Invalid credentials!")
+
+        cursor.close()
+        db.close()
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+    def go_to_register(self):
+        self.manager.current = "register_screen"
+
+
+# Экран регистрации
+class RegisterScreen(Screen):
+    def register_user(self):
+        username = self.ids.username.text
+        password = self.ids.password.text
+        email = self.ids.email.text
+
+        if not username or not password or not email:
+            self.show_popup("Please fill in all fields.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("INSERT INTO users (username, password, email) VALUES (%s, %s, %s)",
+                       (username, password, email))
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.ids.username.text = ''
+        self.ids.password.text = ''
+        self.ids.email.text = ''
+
+        self.show_popup("User registered successfully!")
+        self.manager.current = "login_screen"
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+
+# Экран пользователя
+class UserScreen(Screen):
+    def show_welcome_message(self, username):
+        # Создаем метку для приветствия
+        welcome_label = Label(text=f"Добро пожаловать, {username}!", font_size="28sp", color=(1, 1, 1, 1), halign="center")
+        self.add_widget(welcome_label)
+
+        # Анимация появления и исчезновения
+        anim_in = Animation(opacity=1, duration=8)
+        anim_out = Animation(opacity=0, duration=8)
+        anim_in.start(welcome_label)
+        anim_out.start(welcome_label)
+
+        # Удаляем метку после завершения анимации
+        anim_out.bind(on_complete=lambda *args: self.remove_widget(welcome_label))
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+
+# Экран администратора
+class AdminScreen(Screen):
+    pass
+
+
+# Основной класс приложения
+class WorkTimeApp(App):
+    def build(self):
+        self.screen_manager = ScreenManager()
+        self.screen_manager.add_widget(LoginScreen(name="login_screen"))
+        self.screen_manager.add_widget(RegisterScreen(name="register_screen"))
+        self.screen_manager.add_widget(UserScreen(name="user_screen"))
+        self.screen_manager.add_widget(AdminScreen(name="admin_screen"))
+        return self.screen_manager
+
+
+# Интерфейс в формате .kv
+kv = """
+<LoginScreen>:
+    name: "login_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1  # Dark blue background
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Добро пожаловать в Time Tracker"
+            halign: "center"
+            font_size: "28sp"
+            color: 1, 1, 1, 1  # White text
+
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+            background_normal: ''
+            background_active: ''
+            foreground_color: 0, 0, 0, 1  # Black text
+            background_color: 0.9, 0.9, 0.9, 1  # Light gray background
+
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint_y: None
+            height: "40dp"
+            background_normal: ''
+            background_active: ''
+            foreground_color: 0, 0, 0, 1  # Black text
+            background_color: 0.9, 0.9, 0.9, 1  # Light gray background
+
+        Button:
+            text: "Login"
+            size_hint_y: None
+            height: "50dp"
+            background_normal: ''
+            background_color: 0.2, 0.6, 1, 1  # Blue button
+            color: 1, 1, 1, 1  # White text
+            on_release: root.login_user()
+
+        Button:
+            text: "Нет аккаунта? Зарегистрируйтесь"
+            size_hint_y: None
+            height: "50dp"
+            background_normal: ''
+            background_color: 0.2, 0.6, 1, 1  # Blue button
+            color: 1, 1, 1, 1  # White text
+            on_release: app.root.current = "register_screen"
+
+<RegisterScreen>:
+    name: "register_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1  # Dark blue background
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Зарегистрироваться"
+            halign: "center"
+            font_size: "28sp"
+            color: 1, 1, 1, 1  # White text
+
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+            background_normal: ''
+            background_active: ''
+            foreground_color: 0, 0, 0, 1  # Black text
+            background_color: 0.9, 0.9, 0.9, 1  # Light gray background
+
+        TextInput:
+            id: email
+            hint_text: "Email"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+            background_normal: ''
+            background_active: ''
+            foreground_color: 0, 0, 0, 1  # Black text
+            background_color: 0.9, 0.9, 0.9, 1  # Light gray background
+
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint_y: None
+            height: "40dp"
+            background_normal: ''
+            background_active: ''
+            foreground_color: 0, 0, 0, 1  # Black text
+            background_color: 0.9, 0.9, 0.9, 1  # Light gray background
+
+        Button:
+            text: "Register"
+            size_hint_y: None
+            height: "50dp"
+            background_normal: ''
+            background_color: 0.2, 0.6, 1, 1  # Blue button
+            color: 1, 1, 1, 1  # White text
+            on_release: root.register_user()
+
+        Button:
+            text: "Already have an account? Login"
+            size_hint_y: None
+            height: "50dp"
+            background_normal: ''
+            background_color: 0.2, 0.6, 1, 1  # Blue button
+            color: 1, 1, 1, 1  # White text
+            on_release: app.root.current = "login_screen"
+
+<UserScreen>:
+    name: "user_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1  # Dark blue background
+            Rectangle:
+                size: self.size
+                pos: self.pos
+
+        Button:
+            text: "Logout"
+            size_hint_y: None
+            height: "50dp"
+            background_normal: ''
+            background_color: 0.2, 0.6, 1, 1  # Blue button
+            color: 1, 1, 1, 1  # White text
+            on_release: app.root.current = "login_screen"
+
+<AdminScreen>:
+    name: "admin_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1  # Dark blue background
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Admin Panel"
+            halign: "center"
+            font_size: "28sp"
+            color: 1, 1, 1, 1  # White text
+"""
+
+# Запуск приложения
+if __name__ == '__main__':
+    Builder.load_string(kv)
+    app = WorkTimeApp()
+    app.run()
