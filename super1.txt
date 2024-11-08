@@ -331,8 +331,9 @@ kv = """
             on_release: root.show_tasks()
         Button:
             text: "Logout"
-            size_hint_y: None
-            height: "50dp"
+            size_hint: None, None
+            size: 150, 50
+            pos_hint: {"x": 0.4, "y": 0.05}
             on_release: app.root.current = "login_screen"
 
 <AdminScreen>:
@@ -351,22 +352,24 @@ kv = """
             text: "Admin Panel"
             font_size: "28sp"
             color: 1, 1, 1, 1
-        Spinner:
-            id: user_spinner
-            text: "Select User"
-            size_hint_y: None
-            height: "40dp"
-        TextInput:
-            id: task_description
-            hint_text: "Task Description"
-            multiline: False
-            size_hint_y: None
-            height: "40dp"
-        Button:
-            text: "Add Task"
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_y: None
             height: "50dp"
-            on_release: root.add_task()
+            spacing: 10
+            Spinner:
+                id: user_spinner
+                text: "Select User"
+                size_hint_x: 0.4
+            TextInput:
+                id: task_description
+                hint_text: "Task Description"
+                multiline: False
+                size_hint_x: 0.4
+            Button:
+                text: "Add Task"
+                size_hint_x: 0.2
+                on_release: root.add_task()
         Button:
             text: "View All Tasks"
             size_hint_y: None
@@ -374,8 +377,9 @@ kv = """
             on_release: root.show_all_tasks()
         Button:
             text: "Logout"
-            size_hint_y: None
-            height: "50dp"
+            size_hint: None, None
+            size: 150, 50
+            pos_hint: {"x": 0.4, "y": 0.05}
             on_release: root.logout()
 """
 
