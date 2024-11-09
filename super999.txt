@@ -8,6 +8,8 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
+from kivy.uix.textinput import TextInput
 
 kivy.require('2.0.0')
 
@@ -89,6 +91,49 @@ class UserScreen(Screen):
 
     def load_tasks(self, user_id):
         self.user_id = user_id  # Сохраняем ID пользователя для вызова задач
+        self.update_statistics(user_id)  # Обновляем статистику при загрузке задач
+
+    def show_profile_form(self):
+        layout = BoxLayout(orientation="vertical", padding=20, spacing=10)
+
+        # Inputs for the profile form
+        birth_date_input = TextInput(hint_text="Дата рождения (YYYY-MM-DD)", multiline=False)
+        gender_spinner = Spinner(text="Выберите пол", values=("Male", "Female", "Other"))
+        phone_input = TextInput(hint_text="Номер телефона", multiline=False)
+        address_input = TextInput(hint_text="Адрес", multiline=True)
+
+        # Save button
+        save_button = Button(text="Сохранить", on_release=lambda btn: self.save_profile_data(
+            birth_date_input.text, gender_spinner.text, phone_input.text, address_input.text))
+
+        layout.add_widget(birth_date_input)
+        layout.add_widget(gender_spinner)
+        layout.add_widget(phone_input)
+        layout.add_widget(address_input)
+        layout.add_widget(save_button)
+
+        popup = Popup(title="Заполните профиль", content=layout, size_hint=(None, None), size=(400, 400))
+        popup.open()
+
+    def save_profile_data(self, birth_date, gender, phone_number, address):
+        if not birth_date or not gender or not phone_number or not address:
+            self.show_popup("Пожалуйста, заполните все поля!")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        # Вставка данных в таблицу employees
+        cursor.execute("""
+            INSERT INTO employees (user_id, birth_date, gender, phone_number, address) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (self.user_id, birth_date, gender, phone_number, address))
+
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.show_popup("Профиль успешно обновлен!")
 
     def show_tasks(self):
         db = get_db_connection()
@@ -132,12 +177,37 @@ class UserScreen(Screen):
         cursor.close()
         db.close()
         self.show_popup("Задача завершена!")
+        self.update_statistics(self.user_id)  # Обновляем статистику после завершения задачи
 
     def show_popup(self, message):
         popup = Popup(title='Notification',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
+
+    def update_statistics(self, user_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        # Получаем количество выполненных задач
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND status = 'Выполнено'", (user_id,))
+        completed_tasks = cursor.fetchone()[0]
+
+        # Получаем общее количество задач
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s", (user_id,))
+        total_tasks = cursor.fetchone()[0]
+
+        cursor.close()
+        db.close()
+
+        # Обновляем текст метки с количеством задач
+        if completed_tasks < 10:
+            self.ids.statistics_label.text = f"Статус: Новичок ({completed_tasks}/{total_tasks} задач)"
+        elif completed_tasks < 20:
+            self.ids.statistics_label.text = f"Статус: Разработчик ({completed_tasks}/{total_tasks} задач)"
+        else:
+            self.ids.statistics_label.text = f"Статус: Эксперт ({completed_tasks}/{total_tasks} задач)"
+
 
 # Экран администратора с Spinner
 class AdminScreen(Screen):
@@ -324,18 +394,30 @@ kv = """
             Rectangle:
                 size: self.size
                 pos: self.pos
+        Label:
+            id: statistics_label
+            text: "Статус: Новичок"
+            font_size: "20sp"
+            color: (1, 1, 1, 1)
+            size_hint: None, None
+            size: 250, 700
+            pos_hint: {"x": 0, "top": 1}
         Button:
             text: "Задания"
             size_hint_y: None
             height: "50dp"
             on_release: root.show_tasks()
         Button:
+            text: "Заполнить профиль"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.show_profile_form()
+        Button:
             text: "Logout"
             size_hint: None, None
             size: 150, 50
             pos_hint: {"x": 0.4, "y": 0.05}
             on_release: app.root.current = "login_screen"
-
 <AdminScreen>:
     name: "admin_screen"
     BoxLayout:
