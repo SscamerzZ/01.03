@@ -1,0 +1,471 @@
+import kivy
+from kivy.app import App
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.lang import Builder
+import mysql.connector
+from kivy.uix.popup import Popup
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
+from kivy.uix.textinput import TextInput
+
+kivy.require('2.0.0')
+
+# Подключение к базе данных MySQL
+def get_db_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",  # Введите ваш пароль
+        database="worktime_db"
+    )
+
+# Экран авторизации
+class LoginScreen(Screen):
+    def login_user(self):
+        username = self.ids.username.text
+        password = self.ids.password.text
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = %s AND password = %s", (username, password))
+        user = cursor.fetchone()
+
+        if user:
+            if user[3] == 'admin':  # Разграничение прав
+                app.root.current = "admin_screen"
+            else:
+                app.root.current = "user_screen"
+                user_screen = self.manager.get_screen('user_screen')
+                user_screen.load_tasks(user[0])  # user[0] - ID пользователя
+                user_screen.user_id = user[0]
+            self.show_popup("Login successful!")
+        else:
+            self.show_popup("Invalid credentials!")
+
+        cursor.close()
+        db.close()
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+# Экран регистрации
+class RegisterScreen(Screen):
+    def register_user(self):
+        username = self.ids.username.text
+        password = self.ids.password.text
+        email = self.ids.email.text
+
+        if not username or not password or not email:
+            self.show_popup("Please fill in all fields.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, 'user')",
+                       (username, password))
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.ids.username.text = ''
+        self.ids.password.text = ''
+        self.ids.email.text = ''
+        self.show_popup("User registered successfully!")
+        self.manager.current = "login_screen"
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+# Экран пользователя
+class UserScreen(Screen):
+    user_id = None
+
+    def load_tasks(self, user_id):
+        self.user_id = user_id  # Сохраняем ID пользователя для вызова задач
+        self.update_statistics(user_id)  # Обновляем статистику при загрузке задач
+
+    def show_profile_form(self):
+        layout = BoxLayout(orientation="vertical", padding=20, spacing=10)
+
+        # Inputs for the profile form
+        birth_date_input = TextInput(hint_text="Дата рождения (YYYY-MM-DD)", multiline=False)
+        gender_spinner = Spinner(text="Выберите пол", values=("Male", "Female", "Other"))
+        phone_input = TextInput(hint_text="Номер телефона", multiline=False)
+        address_input = TextInput(hint_text="Адрес", multiline=True)
+
+        # Save button
+        save_button = Button(text="Сохранить", on_release=lambda btn: self.save_profile_data(
+            birth_date_input.text, gender_spinner.text, phone_input.text, address_input.text))
+
+        layout.add_widget(birth_date_input)
+        layout.add_widget(gender_spinner)
+        layout.add_widget(phone_input)
+        layout.add_widget(address_input)
+        layout.add_widget(save_button)
+
+        popup = Popup(title="Заполните профиль", content=layout, size_hint=(None, None), size=(400, 400))
+        popup.open()
+
+    def save_profile_data(self, birth_date, gender, phone_number, address):
+        if not birth_date or not gender or not phone_number or not address:
+            self.show_popup("Пожалуйста, заполните все поля!")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        # Вставка данных в таблицу employees
+        cursor.execute("""
+            INSERT INTO employees (user_id, birth_date, gender, phone_number, address) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (self.user_id, birth_date, gender, phone_number, address))
+
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.show_popup("Профиль успешно обновлен!")
+
+    def show_tasks(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, task_description, status FROM tasks WHERE user_id = %s", (self.user_id,))
+        tasks = cursor.fetchall()
+        cursor.close()
+        db.close()
+
+        task_list_layout = BoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None)
+        task_list_layout.bind(minimum_height=task_list_layout.setter('height'))
+
+        for idx, task in enumerate(tasks, start=1):
+            task_label = Label(
+                text=f"{idx}. {task[1]} - Статус: {task[2]}",
+                font_size="20sp",
+                color=(0, 0, 0, 1),
+                size_hint_y=None,
+                height=40
+            )
+            complete_button = Button(
+                text="Завершить задачу",
+                size_hint_y=None,
+                height=40,
+                on_release=lambda btn, task_id=task[0]: self.complete_task(task_id)
+            )
+            task_list_layout.add_widget(task_label)
+            task_list_layout.add_widget(complete_button)
+
+        scroll_view = ScrollView(size_hint=(1, None), size=(400, 400))
+        scroll_view.add_widget(task_list_layout)
+
+        popup = Popup(title="Ваши Задания", content=scroll_view, size_hint=(None, None), size=(500, 500))
+        popup.open()
+
+    def complete_task(self, task_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("UPDATE tasks SET status = 'Выполнено' WHERE id = %s", (task_id,))
+        db.commit()
+        cursor.close()
+        db.close()
+        self.show_popup("Задача завершена!")
+        self.update_statistics(self.user_id)  # Обновляем статистику после завершения задачи
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+    def update_statistics(self, user_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        # Получаем количество выполненных задач
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND status = 'Выполнено'", (user_id,))
+        completed_tasks = cursor.fetchone()[0]
+
+        # Получаем общее количество задач
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s", (user_id,))
+        total_tasks = cursor.fetchone()[0]
+
+        cursor.close()
+        db.close()
+
+        # Обновляем текст метки с количеством задач
+        if completed_tasks < 10:
+            self.ids.statistics_label.text = f"Статус: Новичок ({completed_tasks}/{total_tasks} задач)"
+        elif completed_tasks < 20:
+            self.ids.statistics_label.text = f"Статус: Разработчик ({completed_tasks}/{total_tasks} задач)"
+        else:
+            self.ids.statistics_label.text = f"Статус: Эксперт ({completed_tasks}/{total_tasks} задач)"
+
+
+# Экран администратора с Spinner
+class AdminScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.user_list = []
+
+    def on_enter(self):
+        self.load_users()
+
+    def load_users(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, username FROM users WHERE role = 'user'")
+        users = cursor.fetchall()
+
+        self.user_list = [f"{user[1]} (ID: {user[0]})" for user in users]
+        self.ids.user_spinner.values = self.user_list
+
+        cursor.close()
+        db.close()
+
+    def add_task(self):
+        selected_user = self.ids.user_spinner.text
+        if not selected_user:
+            self.show_popup("Please select a user.")
+            return
+
+        user_id = int(selected_user.split(":")[1].strip(")"))
+        task_description = self.ids.task_description.text
+
+        if not task_description:
+            self.show_popup("Please fill in all fields.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("INSERT INTO tasks (user_id, task_description, status) VALUES (%s, %s, 'В процессе')",
+                       (user_id, task_description))
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.ids.task_description.text = ''
+        self.show_popup("Task added successfully!")
+
+    def show_all_tasks(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT t.id, u.username, t.task_description, t.status FROM tasks t JOIN users u ON t.user_id = u.id")
+        tasks = cursor.fetchall()
+        cursor.close()
+        db.close()
+
+        task_list_layout = BoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None)
+        task_list_layout.bind(minimum_height=task_list_layout.setter('height'))
+
+        for idx, task in enumerate(tasks, start=1):
+            task_label = Label(
+                text=f"{idx}. {task[1]} - {task[2]} - Статус: {task[3]}",
+                font_size="20sp",
+                color=(0, 0, 0, 1),
+                size_hint_y=None,
+                height=40
+            )
+            task_list_layout.add_widget(task_label)
+
+        scroll_view = ScrollView(size_hint=(1, None), size=(600, 400))
+        scroll_view.add_widget(task_list_layout)
+
+        popup = Popup(title="Все Задания", content=scroll_view, size_hint=(None, None), size=(700, 500))
+        popup.open()
+
+    def logout(self):
+        app.root.current = "login_screen"
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+# Основной класс приложения
+class WorkTimeApp(App):
+    def build(self):
+        self.screen_manager = ScreenManager()
+        self.screen_manager.add_widget(LoginScreen(name="login_screen"))
+        self.screen_manager.add_widget(RegisterScreen(name="register_screen"))
+        self.screen_manager.add_widget(UserScreen(name="user_screen"))
+        self.screen_manager.add_widget(AdminScreen(name="admin_screen"))
+        return self.screen_manager
+
+# Интерфейс в формате .kv
+kv = """
+<LoginScreen>:
+    name: "login_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Добро пожаловать в Time Tracker"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint_y: None
+            height: "40dp"
+        Button:
+            text: "Login"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.login_user()
+        Button:
+            text: "Register"
+            size_hint_y: None
+            height: "50dp"
+            on_release: app.root.current = "register_screen"
+
+<RegisterScreen>:
+    name: "register_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Register"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint_y: None
+            height: "40dp"
+        Button:
+            text: "Register"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.register_user()
+        Button:
+            text: "Already have an account? Login"
+            size_hint_y: None
+            height: "50dp"
+            on_release: app.root.current = "login_screen"
+
+<UserScreen>:
+    name: "user_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            id: statistics_label
+            text: "Статус: Новичок"
+            font_size: "20sp"
+            color: (1, 1, 1, 1)
+            size_hint: None, None
+            size: 250, 700
+            pos_hint: {"x": 0, "top": 1}
+        Button:
+            text: "Задания"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.show_tasks()
+        Button:
+            text: "Заполнить профиль"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.show_profile_form()
+        Button:
+            text: "Logout"
+            size_hint: None, None
+            size: 150, 50
+            pos_hint: {"x": 0.4, "y": 0.05}
+            on_release: app.root.current = "login_screen"
+<AdminScreen>:
+    name: "admin_screen"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 50, 50
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.2, 0.2, 0.5, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: "Admin Panel"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: "50dp"
+            spacing: 10
+            Spinner:
+                id: user_spinner
+                text: "Select User"
+                size_hint_x: 0.4
+            TextInput:
+                id: task_description
+                hint_text: "Task Description"
+                multiline: False
+                size_hint_x: 0.4
+            Button:
+                text: "Add Task"
+                size_hint_x: 0.2
+                on_release: root.add_task()
+        Button:
+            text: "View All Tasks"
+            size_hint_y: None
+            height: "50dp"
+            on_release: root.show_all_tasks()
+        Button:
+            text: "Logout"
+            size_hint: None, None
+            size: 150, 50
+            pos_hint: {"x": 0.4, "y": 0.05}
+            on_release: root.logout()
+"""
+
+if __name__ == "__main__":
+    Builder.load_string(kv)
+    app = WorkTimeApp()
+    app.run()
