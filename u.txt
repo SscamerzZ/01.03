@@ -3,3 +3,5 @@ https://www.youtube.com/watch?v=DVpMLTvqcOA
 https://www.youtube.com/watch?v=DVpMLTvqcOA&t=143s
 https://www.youtube.com/watch?v=sK8IZQNAtsY&t=398s
 https://sky.pro/wiki/python/kak-skompilirovat-kivy-v-apk/
+
+kivy,kivy.app.App,kivy.uix.screenmanager.ScreenManager,kivy.uix.screenmanager.Screen,kivy.lang.Builder,mysql.connector,kivy.uix.label.Label,kivy.uix.scrollview.ScrollView,kivy.uix.spinner.Spinner,kivy.uix.textinput.TextInput,kivy.uix.image.Image,kivy.uix.button.Button,kivy.uix.filechooser.FileChooserIconView,kivy.uix.popup.Popup,kivy.uix.boxlayout.BoxLayout,time,random,string,smtplib,email.mime.text.MIMEText,email.mime.multipart.MIMEMultipart
