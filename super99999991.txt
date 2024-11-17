@@ -16,20 +16,21 @@ import time
 
 kivy.require('2.0.0')
 
-# Подключение к базе данных MySQL
 def get_db_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password="",  # Введите ваш пароль
-        database="1111"
+        password="",
+        database="time_tracker"
     )
 
-# Экран авторизации
 class LoginScreen(Screen):
     def login_user(self):
         username = self.ids.username.text
         password = self.ids.password.text
+
+        self.logo = Image(source='D:\\12345\\pythonProjectProect\\avatars\\auto.png', size_hint=(None, None), size=(70, 70))
+        self.logo.pos_hint = {'right': 1, 'top': 1}
 
         db = get_db_connection()
         cursor = db.cursor()
@@ -37,16 +38,16 @@ class LoginScreen(Screen):
         user = cursor.fetchone()
 
         if user:
-            if user[3] == 'admin':  # Разграничение прав
+            if user[3] == 'admin':
                 app.root.current = "admin_screen"
             else:
                 app.root.current = "user_screen"
                 user_screen = self.manager.get_screen('user_screen')
-                user_screen.load_tasks(user[0])  # user[0] - ID пользователя
+                user_screen.load_tasks(user[0])
                 user_screen.user_id = user[0]
-            self.show_popup("Login successful!")
+            self.show_popup("Вход выполнен успешно!")
         else:
-            self.show_popup("Invalid credentials!")
+            self.show_popup("Недействительные учетные данные!")
 
         cursor.close()
         db.close()
@@ -69,7 +70,6 @@ class LoginScreen(Screen):
             self.show_popup("Пожалуйста, введите адрес электронной почты.")
             return
 
-        # Проверяем, существует ли такой email в базе данных
         db = get_db_connection()
         cursor = db.cursor()
         cursor.execute("SELECT id, username FROM users WHERE email = %s", (email,))
@@ -79,17 +79,14 @@ class LoginScreen(Screen):
             self.show_popup("Пользователь с таким email не найден.")
             return
 
-        # Генерируем новый пароль
         new_password = self.generate_random_password()
 
-        # Обновляем пароль в базе данных
         cursor.execute("UPDATE users SET password = %s WHERE email = %s", (new_password, email))
         db.commit()
 
         cursor.close()
         db.close()
 
-        # Отправляем новый пароль на почту
         self.send_reset_email(email, new_password)
 
         self.show_popup(f"Новый пароль был отправлен на вашу почту: {email}")
@@ -106,9 +103,9 @@ class LoginScreen(Screen):
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
 
-        sender_email = ""  # Ваш email
+        sender_email = ""
         receiver_email = email
-        sender_password = ""  # Ваш пароль для почты
+        sender_password = ""
 
         msg = MIMEMultipart()
         msg['From'] = sender_email
@@ -129,23 +126,26 @@ class LoginScreen(Screen):
             self.show_popup(f"Ошибка при отправке письма: {e}")
 
     def show_popup(self, message):
-        popup = Popup(title='Notification',
+        popup = Popup(title='Уведомление',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
 
     def show_popup(self, message):
-        popup = Popup(title='Notification',
+        popup = Popup(title='Уведомление',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
 
-# Экран регистрации
 class RegisterScreen(Screen):
     def register_user(self):
         username = self.ids.username.text
         password = self.ids.password.text
         email = self.ids.email.text
+
+        self.logo = Image(source='D:\\12345\\pythonProjectProect\\avatars\\auto.png', size_hint=(None, None),
+                          size=(70, 70))
+        self.logo.pos_hint = {'right': 1, 'top': 1}
 
         if not username or not password or not email:
             self.show_popup("Пожалуйста, заполните все поля.")
@@ -154,7 +154,6 @@ class RegisterScreen(Screen):
         db = get_db_connection()
         cursor = db.cursor()
 
-        # Вставка данных пользователя в таблицу без кодового слова
         cursor.execute("INSERT INTO users (username, password, email, role) VALUES (%s, %s, %s, 'user')",
                        (username, password, email))
         db.commit()
@@ -168,12 +167,11 @@ class RegisterScreen(Screen):
         self.manager.current = "login_screen"
 
     def show_popup(self, message):
-        popup = Popup(title='Notification',
+        popup = Popup(title='Уведомление',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
 
-# Экран пользователя
 class UserScreen(Screen):
     user_id = None
 
@@ -183,17 +181,15 @@ class UserScreen(Screen):
         super().__init__(**kwargs)
         self.start_time = None
         self.end_time = None
-        self.tasks_completed = 0  # Инициализируем атрибут для отслеживания задач
+        self.tasks_completed = 0
 
     def start_work(self):
-        """Начать работу и стартовать таймер"""
         self.start_time = time.time()
         self.ids.statistics_label.text = "Статус: В процессе работы"
         self.ids.start_work_button.disabled = True
         self.ids.end_work_button.disabled = False
 
     def end_work(self):
-        """Завершить работу и отправить отчет"""
         if self.start_time is None:
             self.show_popup("Вы не начали работу!")
             return
@@ -203,15 +199,13 @@ class UserScreen(Screen):
         work_duration_minutes = work_duration // 60
         work_duration_seconds = work_duration % 60
 
-        # Подсчитываем количество завершенных задач из базы данных
         db = get_db_connection()
         cursor = db.cursor()
         cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND status = 'Завершено'", (self.user_id,))
-        tasks_completed = cursor.fetchone()[0]  # Получаем количество завершенных задач
+        tasks_completed = cursor.fetchone()[0]
         cursor.close()
         db.close()
 
-        # Отправка отчета админу
         db = get_db_connection()
         cursor = db.cursor()
         cursor.execute("INSERT INTO reports (user_id, report_text) VALUES (%s, %s)",
@@ -221,23 +215,19 @@ class UserScreen(Screen):
         cursor.close()
         db.close()
 
-        # Обновляем интерфейс
-        self.ids.statistics_label.text = f"Статус: Работа завершена. Время работы: {int(work_duration_minutes)} мин {int(work_duration_seconds)} сек"
+        self.ids.statistics_label.text = f"     Статус: Работа завершена. Время работы: {int(work_duration_minutes)} мин {int(work_duration_seconds)} сек"
         self.ids.start_work_button.disabled = False
         self.ids.end_work_button.disabled = True
 
     def task_completed(self):
-        """Отмечаем выполнение задачи"""
-        self.tasks_completed += 1  # Увеличиваем количество выполненных задач
-        self.update_statistics(self.user_id)  # Обновляем статистику
+        self.tasks_completed += 1
+        self.update_statistics(self.user_id)
 
     def show_report_form(self):
-        """Показать форму отчета для пользователя"""
-        pass  # Реализуйте форму отчета, если нужно
+        pass
 
     def show_popup(self, message):
-        """Показать всплывающее окно"""
-        popup = Popup(title="Notification", content=Label(text=message),
+        popup = Popup(title="Уведомление", content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
 
@@ -246,7 +236,7 @@ class UserScreen(Screen):
         self.avatar_image = Image(
             size_hint=(None, None),
             size=(100, 100),
-            pos_hint={'right': 1, 'top': 1}  # Позиция в правом верхнем углу
+            pos_hint={'right': 1, 'top': 1}
         )
         self.add_widget(self.avatar_image)
         self.avatar_path = self.get_avatar_from_db()
@@ -257,20 +247,18 @@ class UserScreen(Screen):
         self.display_avatar()
 
     def display_avatar(self):
-        """ Отображает аватарку пользователя """
         if self.avatar_path:
             self.avatar_image.source = self.avatar_path
         else:
-            self.avatar_image.source = "default_avatar.png"  # Путь к аватарке по умолчанию
+            self.avatar_image.source = "default_avatar.png"
 
     def show_popup(self, message):
-        popup = Popup(title='Notification',
+        popup = Popup(title='Уведомление',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
 
     def get_avatar_from_db(self):
-        """ Получить путь к аватарке из базы данных """
         db = get_db_connection()
         cursor = db.cursor()
         cursor.execute("SELECT avatar_path FROM users WHERE id = %s", (self.user_id,))
@@ -283,7 +271,6 @@ class UserScreen(Screen):
         return ""
 
     def update_avatar(self, avatar_path):
-        """ Обновить путь к аватарке в базе данных """
         db = get_db_connection()
         cursor = db.cursor()
         cursor.execute("UPDATE users SET avatar_path = %s WHERE id = %s", (avatar_path, self.user_id))
@@ -306,12 +293,11 @@ class UserScreen(Screen):
         popup.open()
 
     def set_avatar(self, path, selection):
-        """ Установить выбранное изображение в качестве аватарки """
         if selection:
             selected_file = selection[0]
             self.avatar_path = selected_file
-            self.update_avatar(selected_file)  # Обновляем аватарку в базе данных
-            self.display_avatar()  # Обновляем изображение в интерфейсе
+            self.update_avatar(selected_file)
+            self.display_avatar()
         else:
             self.show_popup("Пожалуйста, выберите файл изображения.")
 
@@ -345,7 +331,6 @@ class UserScreen(Screen):
         db = get_db_connection()
         cursor = db.cursor()
 
-        # Вставка данных в таблицу employees
         cursor.execute("""
             INSERT INTO employees (user_id, birth_date, gender, phone_number, address) 
             VALUES (%s, %s, %s, %s, %s)
@@ -399,24 +384,21 @@ class UserScreen(Screen):
         cursor.close()
         db.close()
         self.show_popup("Задача завершена!")
-        self.update_statistics(self.user_id)  # Обновляем статистику после завершения задачи
+        self.update_statistics(self.user_id)
 
     def update_statistics(self, user_id):
         db = get_db_connection()
         cursor = db.cursor()
 
-        # Получаем количество выполненных задач
         cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND status = 'Выполнено'", (user_id,))
         completed_tasks = cursor.fetchone()[0]
 
-        # Получаем общее количество задач
         cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s", (user_id,))
         total_tasks = cursor.fetchone()[0]
 
         cursor.close()
         db.close()
 
-        # Обновляем текст метки с количеством задач
         if completed_tasks < 10:
             self.ids.statistics_label.text = f"Статус: Новичок ({completed_tasks}/{total_tasks} задач)"
         elif completed_tasks < 20:
@@ -425,17 +407,15 @@ class UserScreen(Screen):
             self.ids.statistics_label.text = f"Статус: Эксперт ({completed_tasks}/{total_tasks} задач)"
 
     def load_tasks(self, user_id):
-        self.user_id = user_id  # Сохраняем ID пользователя для вызова задач
-        self.update_statistics(user_id)  # Обновляем статистику при загрузке задач
+        self.user_id = user_id
+        self.update_statistics(user_id)
 
     def show_report_form(self):
         layout = BoxLayout(orientation="vertical", padding=20, spacing=10)
 
-        # Текстовое поле для отчета
         report_input = TextInput(hint_text="Введите отчет о проделанной работе", multiline=True, size_hint_y=None,
                                  height=200)
 
-        # Кнопка для отправки отчета
         send_button = Button(text="Отправить отчет", on_release=lambda btn: self.send_report(report_input.text))
 
         layout.add_widget(report_input)
@@ -452,7 +432,6 @@ class UserScreen(Screen):
         db = get_db_connection()
         cursor = db.cursor()
 
-        # Вставляем отчет в базу данных
         cursor.execute("INSERT INTO message (user_id, report_text) VALUES (%s, %s)", (self.user_id, report_text))
         db.commit()
         cursor.close()
@@ -460,8 +439,6 @@ class UserScreen(Screen):
 
         self.show_popup("Ваш отчет был успешно отправлен!")
 
-
-# Экран администратора с Spinner
 class AdminScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -485,14 +462,14 @@ class AdminScreen(Screen):
     def add_task(self):
         selected_user = self.ids.user_spinner.text
         if not selected_user:
-            self.show_popup("Please select a user.")
+            self.show_popup("Пожалуйста, выберите пользователя.")
             return
 
         user_id = int(selected_user.split(":")[1].strip(")"))
         task_description = self.ids.task_description.text
 
         if not task_description:
-            self.show_popup("Please fill in all fields.")
+            self.show_popup("Пожалуйста, заполните все поля.")
             return
 
         db = get_db_connection()
@@ -504,7 +481,7 @@ class AdminScreen(Screen):
         db.close()
 
         self.ids.task_description.text = ''
-        self.show_popup("Task added successfully!")
+        self.show_popup("Задача успешно добавлена!")
 
     def show_all_tasks(self):
         db = get_db_connection()
@@ -537,7 +514,7 @@ class AdminScreen(Screen):
         app.root.current = "login_screen"
 
     def show_popup(self, message):
-        popup = Popup(title='Notification',
+        popup = Popup(title='Уведомление',
                       content=Label(text=message),
                       size_hint=(None, None), size=(400, 200))
         popup.open()
@@ -547,7 +524,6 @@ class AdminScreen(Screen):
             db = get_db_connection()
             cursor = db.cursor()
 
-            # Запрос для получения отчетов с сортировкой по времени
             cursor.execute("""
                 SELECT u.username, r.report_text, r.created_at, u.id
                 FROM reports r
@@ -567,7 +543,6 @@ class AdminScreen(Screen):
             report_list_layout.bind(minimum_height=report_list_layout.setter('height'))
 
             for idx, report in enumerate(reports, start=1):
-                # Получаем количество завершенных задач для каждого пользователя
                 db = get_db_connection()
                 cursor = db.cursor()
                 cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = %s AND status = 'Выполнено'", (report[3],))
@@ -598,7 +573,6 @@ class AdminScreen(Screen):
             db = get_db_connection()
             cursor = db.cursor()
 
-            # Запрос для получения сообщений
             cursor.execute("""
                 SELECT u.username, m.report_text, m.created_at 
                 FROM message m 
@@ -636,8 +610,6 @@ class AdminScreen(Screen):
             self.show_popup(f"Ошибка: {str(e)}")
             print(f"Ошибка: {str(e)}")
 
-
-# Основной класс приложения
 class WorkTimeApp(App):
     def build(self):
         self.screen_manager = ScreenManager()
@@ -646,8 +618,6 @@ class WorkTimeApp(App):
         self.screen_manager.add_widget(UserScreen(name="user_screen"))
         self.screen_manager.add_widget(AdminScreen(name="admin_screen"))
         return self.screen_manager
-
-# Интерфейс в формате .kv
 kv = """
 <LoginScreen>:
     name: "login_screen"
@@ -657,20 +627,27 @@ kv = """
         spacing: 20
         canvas.before:
             Color:
-                rgba: 0.2, 0.2, 0.5, 1
+                rgba: 0.9, 0.9, 0.9, 1
             Rectangle:
                 size: self.size
                 pos: self.pos
+        Image:
+            source: "D:\\12345\\pythonProjectProect\\avatars\\auto.png"
+            size_hint: None, None
+            size: "70dp", "70dp"
+            pos_hint: {"right": 1, "top": 1}
         Label:
             text: "Добро пожаловать в Time Tracker"
             font_size: "28sp"
-            color: 1, 1, 1, 1
+            color: 0, 0, 0, 1
         TextInput:
             id: username
             hint_text: "Username"
             multiline: False
             size_hint_y: None
             height: "40dp"
+            background_normal: ''
+            background_color: 0.95, 0.95, 0.95, 1
         TextInput:
             id: password
             hint_text: "Password"
@@ -678,22 +655,28 @@ kv = """
             password: True
             size_hint_y: None
             height: "40dp"
+            background_normal: ''
+            background_color: 0.95, 0.95, 0.95, 1
         Button:
-            text: "Login"
+            text: "Войти"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.login_user()
         Button:
-            text: "Register"
+            text: "Создать аккаунт"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: app.root.current = "register_screen"
         Button:
             text: "Забыл пароль?"
             size_hint_y: None
             height: "50dp"
+            background_normal: ''
+            background_color: 0, 0, 0, 0
+            color: 0, 0, 1, 1
             on_release: root.forgot_password()
-
 <RegisterScreen>:
     name: "register_screen"
     BoxLayout:
@@ -702,20 +685,27 @@ kv = """
         spacing: 20
         canvas.before:
             Color:
-                rgba: 0.2, 0.2, 0.5, 1
+                rgba: 0.9, 0.9, 0.9, 1
             Rectangle:
                 size: self.size
                 pos: self.pos
+        Image:
+            source: "D:\\12345\\pythonProjectProect\\avatars\\auto.png"
+            size_hint: None, None
+            size: "70dp", "70dp"
+            pos_hint: {"right": 1, "top": 1}
         Label:
-            text: "Register"
+            text: "Регистрация"
             font_size: "28sp"
-            color: 1, 1, 1, 1
+            color: 0, 0, 0, 1
         TextInput:
             id: username
             hint_text: "Username"
             multiline: False
             size_hint_y: None
             height: "40dp"
+            background_normal: ''
+            background_color: 0.95, 0.95, 0.95, 1
         TextInput:
             id: password
             hint_text: "Password"
@@ -723,23 +713,28 @@ kv = """
             password: True
             size_hint_y: None
             height: "40dp"
+            background_normal: ''
+            background_color: 0.95, 0.95, 0.95, 1
         TextInput:
             id: email
             hint_text: "Email"
             multiline: False
             size_hint_y: None
             height: "40dp"
+            background_normal: ''
+            background_color: 0.95, 0.95, 0.95, 1
         Button:
-            text: "Register"
+            text: "Зарегистрироваться"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.register_user()
         Button:
-            text: "Already have an account? Login"
+            text: "У вас уже есть аккаунт? Войти"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.9, 0.9, 0.9, 1
             on_release: app.root.current = "login_screen"
-
 <UserScreen>:
     name: "user_screen"
     BoxLayout:
@@ -748,7 +743,7 @@ kv = """
         spacing: 20
         canvas.before:
             Color:
-                rgba: 0.2, 0.2, 0.5, 1
+                rgba: 0.9, 0.9, 0.9, 1
             Rectangle:
                 size: self.size
                 pos: self.pos
@@ -756,7 +751,7 @@ kv = """
             id: statistics_label
             text: "Статус: Новичок"
             font_size: "20sp"
-            color: (1, 1, 1, 1)
+            color: 0, 0, 0, 1
             size_hint: None, None
             size: 250, 40
             pos_hint: {"x": 0, "top": 1}
@@ -765,41 +760,47 @@ kv = """
             text: "Начать работу"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.start_work()
         Button:
             id: end_work_button
             text: "Завершить работу"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.end_work()
             disabled: True
         Button:
             text: "Отправить сообщение админу"
             size_hint_y: None
             height: "50dp"
-            on_release: root.show_report_form()    
+            background_color: 0.9, 0.9, 0.9, 1
+            on_release: root.show_report_form()
         Button:
             text: "Задания"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.9, 0.9, 0.9, 1
             on_release: root.show_tasks()
         Button:
             text: "Изменить аватар"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.9, 0.9, 0.9, 1
             on_release: root.change_avatar()
         Button:
             text: "Заполнить профиль"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.9, 0.9, 0.9, 1
             on_release: root.show_profile_form()
         Button:
-            text: "Logout"
+            text: "Выйти"
             size_hint: None, None
             size: 150, 50
             pos_hint: {"x": 0.4, "y": 0.05}
+            background_color: 0.2, 0.6, 1, 1
             on_release: app.root.current = "login_screen"
-
 <AdminScreen>:
     name: "admin_screen"
     BoxLayout:
@@ -808,14 +809,14 @@ kv = """
         spacing: 20
         canvas.before:
             Color:
-                rgba: 0.2, 0.2, 0.5, 1
+                rgba: 0.9, 0.9, 0.9, 1
             Rectangle:
                 size: self.size
                 pos: self.pos
         Label:
             text: "Admin Panel"
             font_size: "28sp"
-            color: 1, 1, 1, 1
+            color: 0, 0, 0, 1
         BoxLayout:
             orientation: "vertical"
             padding: 50, 50
@@ -824,11 +825,13 @@ kv = """
             text: "Просмотр отчётов"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.show_reports()
         Button:
             text: "Просмотр сообщений пользователей"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.show_message()
         BoxLayout:
             orientation: 'horizontal'
@@ -837,31 +840,37 @@ kv = """
             spacing: 10
             Spinner:
                 id: user_spinner
-                text: "Select User"
+                text: "Выберите пользователя"
                 size_hint_x: 0.4
             TextInput:
                 id: task_description
-                hint_text: "Task Description"
+                hint_text: "Описание задачи"
                 multiline: False
                 size_hint_x: 0.4
+                background_normal: ''
+                background_color: 0.95, 0.95, 0.95, 1
             Button:
-                text: "Add Task"
+                text: "Добавить задачу"
                 size_hint_x: 0.2
+                background_color: 0.2, 0.6, 1, 1
                 on_release: root.add_task()
         Button:
-            text: "View All Tasks"
+            text: "Просмотреть все задачи"
             size_hint_y: None
             height: "50dp"
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.show_all_tasks()
         Button:
-            text: "Logout"
+            text: "Выйти"
             size_hint: None, None
             size: 150, 50
             pos_hint: {"x": 0.4, "y": 0.05}
+            background_color: 0.2, 0.6, 1, 1
             on_release: root.logout()
 """
 
+Builder.load_file('ui.kv')
+
 if __name__ == "__main__":
-    Builder.load_string(kv)
     app = WorkTimeApp()
     app.run()
