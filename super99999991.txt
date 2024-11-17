@@ -16,14 +16,6 @@ import time
 
 kivy.require('2.0.0')
 
-def get_db_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="time_tracker"
-    )
-
 class LoginScreen(Screen):
     def login_user(self):
         username = self.ids.username.text
