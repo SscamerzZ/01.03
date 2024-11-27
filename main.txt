@@ -1,0 +1,973 @@
+import datetime
+import random
+import string
+import kivy
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.checkbox import CheckBox
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.lang import Builder
+import mysql.connector
+from kivy.uix.popup import Popup
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+import bcrypt
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
+from kivy.uix.textinput import TextInput
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def get_db_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="Bektenova"
+    )
+
+class LoginScreen(Screen):
+    def forgot_password(self):
+        layout = BoxLayout(orientation="vertical", padding=20, spacing=10)
+
+        email_input = TextInput(hint_text="Введите ваш Email", multiline=False)
+
+        reset_button = Button(text="Сбросить пароль", on_release=lambda btn: self.reset_password(email_input.text))
+
+        layout.add_widget(email_input)
+        layout.add_widget(reset_button)
+
+        popup = Popup(title="Восстановление пароля", content=layout, size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+    def reset_password(self, email):
+        if not email:
+            self.show_popup("Пожалуйста, введите адрес электронной почты.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, username FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+
+        if not user:
+            self.show_popup("Пользователь с таким email не найден.")
+            return
+
+        new_password = self.generate_random_password()
+
+        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+
+        cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_password, email))
+        db.commit()
+
+        cursor.close()
+        db.close()
+
+        self.send_reset_email(email, new_password)
+
+        self.show_popup(f"Новый пароль был отправлен на вашу почту: {email}")
+
+    def generate_random_password(self):
+        password_length = 8
+        characters = string.ascii_letters + string.digits
+        return ''.join(random.choice(characters) for _ in range(password_length))
+
+    def send_reset_email(self, email, new_password):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT sender_email, sender_password FROM email WHERE user_id = (SELECT id FROM users WHERE email = %s)", (email,))
+        email_config = cursor.fetchone()
+        cursor.close()
+        db.close()
+
+        if not email_config:
+            self.show_popup("Конфигурация почты не найдена.")
+            return
+
+        sender_email, sender_password = email_config
+        receiver_email = email
+
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = receiver_email
+        msg['Subject'] = 'Восстановление пароля'
+
+        body = f"Ваш новый пароль: {new_password}"
+        msg.attach(MIMEText(body, 'plain'))
+
+        try:
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            server.login(sender_email, sender_password)
+            text = msg.as_string()
+            server.sendmail(sender_email, receiver_email, text)
+            server.quit()
+        except Exception as e:
+            self.show_popup(f"Ошибка при отправке письма: {e}")
+
+    def show_popup(self, message):
+        popup = Popup(title='Уведомление',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+    def login_user(self):
+        username = self.ids.username.text.strip()
+        password = self.ids.password.text.strip()
+
+        if not username or not password:
+            self.show_popup("Please enter both username and password.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, password, role, is_blocked FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        cursor.close()
+        db.close()
+
+        if not user:
+            self.show_popup("Invalid username or password.")
+            return
+
+        user_id, hashed_password, role, is_blocked = user
+
+        if is_blocked:
+            self.show_popup("Your account is blocked. Contact admin.")
+            return
+
+        if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
+            global current_user_id
+            current_user_id = user_id
+            if role == 'admin':
+                self.manager.current = "admin_screen"
+            else:
+                self.manager.current = "user_screen"
+            self.show_popup("Login successful!")
+        else:
+            self.show_popup("Invalid username or password.")
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+class RegisterScreen(Screen):
+    def register_user(self):
+        username = self.ids.username.text.strip()
+        password = self.ids.password.text.strip()
+        email = self.ids.email.text.strip()
+        sender_password = self.ids.sender_password.text.strip()
+
+        if not username or not password or not email or not sender_password:
+            self.show_popup("Please fill in all fields.")
+            return
+
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        try:
+            cursor.execute("INSERT INTO users (username, password, role, email) VALUES (%s, %s, 'user', %s)",
+                           (username, hashed_password, email))
+            db.commit()
+
+            cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
+            user_id = cursor.fetchone()[0]
+
+            cursor.execute("INSERT INTO email (user_id, sender_email, sender_password) VALUES (%s, %s, %s)",
+                           (user_id, email, sender_password))
+            db.commit()
+
+            self.show_popup("User registered successfully!")
+            self.manager.current = "login_screen"
+
+        except mysql.connector.Error as err:
+            self.show_popup(f"Error: {err}")
+        finally:
+            cursor.close()
+            db.close()
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+class UserScreen(Screen):
+    def show_books(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, title, author, genre FROM books WHERE is_reserved = 0")
+        books = cursor.fetchall()
+        db.close()
+
+        self.selected_books = []
+        self.book_buttons = []
+
+        for book in books:
+            button = CheckBox(size_hint=(None, None), size=(40, 40))
+            button.bind(active=self.on_checkbox_active)
+            self.book_buttons.append((book[0], button, book[1]))
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        for book_id, button, title in self.book_buttons:
+            layout.add_widget(Label(text=title))
+            layout.add_widget(button)
+
+        reserve_button = Button(text="Reserve Selected Books", size_hint=(None, None), size=(250, 40),
+                                on_press=self.reserve_books)
+
+        layout.add_widget(reserve_button)
+
+        popup = Popup(title="Select Books",
+                      content=layout,
+                      size_hint=(None, None), size=(400, 600))
+        popup.open()
+
+    def on_checkbox_active(self, checkbox, value):
+        book_id = next(book[0] for book in self.book_buttons if book[1] == checkbox)
+        if value:
+            self.selected_books.append(book_id)
+        else:
+            self.selected_books.remove(book_id)
+
+    def reserve_books(self, instance):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        for book_id in self.selected_books:
+            reserved_from = datetime.datetime.now()
+            reserved_until = reserved_from + datetime.timedelta(days=7)
+            cursor.execute("UPDATE books SET is_reserved = 1, reserved_until = %s WHERE id = %s",
+                           (reserved_until, book_id))
+            cursor.execute(
+                "INSERT INTO reservations (user_id, book_id, reserved_from, reserved_until) VALUES (%s, %s, %s, %s)",
+                (current_user_id, book_id, reserved_from, reserved_until))
+
+            cursor.execute("""
+                INSERT INTO user_statistics (user_id, total_books_reserved)
+                VALUES (%s, 1)
+                ON DUPLICATE KEY UPDATE total_books_reserved = total_books_reserved + 1
+            """, (current_user_id,))
+
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.show_popup("Books reserved successfully!")
+
+    def cancel_reservation(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+            SELECT r.id, b.id AS book_id, b.title
+            FROM reservations r
+            JOIN books b ON r.book_id = b.id
+            WHERE r.user_id = %s AND r.reserved_until > CURDATE()
+        """, (current_user_id,))
+        reservations = cursor.fetchall()
+
+        if not reservations:
+            self.show_popup("You have no active reservations to cancel.")
+            return
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        for reservation_id, book_id, title in reservations:
+            layout.add_widget(Label(text=f"Book: {title}"))
+
+        cancel_button = Button(text="Cancel Reservation", size_hint=(None, None), size=(250, 40),
+                               on_press=lambda x: self.confirm_cancel(reservation_id, book_id))
+
+        layout.add_widget(cancel_button)
+
+        popup = Popup(title="Cancel Reservation",
+                      content=layout,
+                      size_hint=(None, None), size=(400, 600))
+        popup.open()
+
+    def confirm_cancel(self, reservation_id, book_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("DELETE FROM reservations WHERE id = %s", (reservation_id,))
+        cursor.execute("UPDATE books SET is_reserved = 0 WHERE id = %s", (book_id,))
+
+        db.commit()
+        cursor.close()
+        db.close()
+
+        self.show_popup("Reservation cancelled successfully!")
+
+    def view_statistics(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM reservations
+            WHERE user_id = %s AND reserved_from >= CURDATE() - INTERVAL 1 MONTH
+        """, (current_user_id,))
+        count = cursor.fetchone()[0]
+        db.close()
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(Label(text=f"You've reserved {count} books in the last month."))
+
+        popup = Popup(title="Your Book Statistics", content=layout, size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+    def leave_review(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT id, title FROM books
+            WHERE id IN (SELECT book_id FROM reservations WHERE user_id = %s)
+        """, (current_user_id,))
+        books = cursor.fetchall()
+        db.close()
+
+        if not books:
+            self.show_popup("You have no books to review.")
+            return
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        dropdown = Spinner(text="Select a book", values=[book[1] for book in books])
+        review_input = TextInput(hint_text="Write your review here", multiline=True)
+        submit_button = Button(text="Submit Review", size_hint=(1, 0.2))
+
+        layout.add_widget(dropdown)
+        layout.add_widget(review_input)
+        layout.add_widget(submit_button)
+
+        popup = Popup(title="Leave a Review", content=layout, size_hint=(None, None), size=(400, 500))
+        popup.open()
+
+        def submit_review(instance):
+            selected_book = next((book[0] for book in books if book[1] == dropdown.text), None)
+            if not selected_book:
+                self.show_popup("Please select a valid book.")
+                return
+
+            review_text = review_input.text.strip()
+            if not review_text:
+                self.show_popup("Review cannot be empty.")
+                return
+
+            db = get_db_connection()
+            cursor = db.cursor()
+            cursor.execute("""
+                INSERT INTO reviews (user_id, book_id, review)
+                VALUES (%s, %s, %s)
+            """, (current_user_id, selected_book, review_text))
+            db.commit()
+            db.close()
+
+            self.show_popup("Thank you for your review!")
+            popup.dismiss()
+
+        submit_button.bind(on_release=submit_review)
+
+    def show_reserved_books(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT b.title, r.reserved_from, r.reserved_until
+            FROM reservations r
+            JOIN books b ON r.book_id = b.id
+            WHERE r.user_id = %s
+        """, (current_user_id,))
+        reserved_books = cursor.fetchall()
+        db.close()
+
+        if not reserved_books:
+            self.show_popup("You have no reserved books.")
+            return
+
+        books_info = ""
+        for book in reserved_books:
+            title, reserved_from, reserved_until = book
+            books_info += f"Title: {title} | Reserved from: {reserved_from}\n"
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        layout.add_widget(Label(text=books_info))
+
+        popup = Popup(title="My Reserved Books",
+                      content=layout,
+                      size_hint=(None, None), size=(400, 600))
+        popup.open()
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+class AdminScreen(Screen):
+    def manage_users(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("SELECT id, username FROM users WHERE role = 'user'")
+        users = cursor.fetchall()
+        db.close()
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10, size_hint_y=None)
+        layout.bind(minimum_height=layout.setter('height'))
+
+        for user in users:
+            button = Button(
+                text=f"Block: {user[1]}",
+                size_hint=(None, None),
+                size=(300, 50),
+                on_press=lambda btn, user_id=user[0]: self.confirm_user_action(user_id)
+            )
+            layout.add_widget(button)
+
+        scroll_view = ScrollView(size_hint=(1, 1))
+        scroll_view.add_widget(layout)
+
+        popup = Popup(title="Manage Users", content=scroll_view, size_hint=(None, None), size=(400, 600))
+        popup.open()
+
+    def confirm_user_action(self, user_id):
+        layout = BoxLayout(orientation="horizontal", padding=10, spacing=10)
+        block_button = Button(text="Block", on_press=lambda btn: self.block_user(user_id))
+        layout.add_widget(block_button)
+
+        popup = Popup(title="Confirm Action", content=layout, size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+    def block_user(self, user_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("UPDATE users SET is_blocked = 1 WHERE id = %s", (user_id,))
+        db.commit()
+        db.close()
+        self.show_popup("User blocked successfully!")
+
+    def delete_user(self, user_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        db.commit()
+        db.close()
+        self.show_popup("User deleted successfully!")
+
+    def show_popup(self, message):
+        popup = Popup(title="Info", content=Label(text=message), size_hint=(None, None), size=(300, 200))
+        popup.open()
+
+    def add_book(self):
+        title = self.ids.title.text.strip()
+        author = self.ids.author.text.strip()
+        genre = self.ids.genre.text.strip()
+
+        if not title or not author or not genre:
+            self.show_popup("Please enter all fields.")
+            return
+
+        db = get_db_connection()
+        cursor = db.cursor()
+        try:
+            cursor.execute("INSERT INTO books (title, author, genre) VALUES (%s, %s, %s)", (title, author, genre))
+            db.commit()
+            self.show_popup("Book added successfully!")
+            self.ids.title.text = ""
+            self.ids.author.text = ""
+            self.ids.genre.text = ""
+        except mysql.connector.Error as err:
+            self.show_popup(f"Error: {err}")
+        finally:
+            cursor.close()
+            db.close()
+
+    def view_reviews(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("""
+            SELECT r.id, b.title, u.username, r.review, r.created_at
+            FROM reviews r
+            JOIN books b ON r.book_id = b.id
+            JOIN users u ON r.user_id = u.id
+            ORDER BY r.created_at DESC
+        """)
+        reviews = cursor.fetchall()
+        db.close()
+
+        if not reviews:
+            self.show_popup("No reviews available.")
+            return
+
+        layout = BoxLayout(orientation="vertical", size_hint_y=None, spacing=10, padding=10)
+        layout.bind(minimum_height=layout.setter('height'))
+
+        for review in reviews:
+            review_text = f"Book: {review[1]}\nUser: {review[2]}\nReview: {review[3]}\nDate: {review[4]}"
+            label = Label(text=review_text, size_hint_y=None, height=100)
+            layout.add_widget(label)
+
+        scroll_view = ScrollView(size_hint=(1, 1))
+        scroll_view.add_widget(layout)
+
+        popup = Popup(title="User Reviews", content=scroll_view, size_hint=(None, None), size=(500, 600))
+        popup.open()
+
+    def delete_book(self):
+        db = get_db_connection()
+        cursor = db.cursor()
+        cursor.execute("SELECT id, title FROM books")
+        books = cursor.fetchall()
+        db.close()
+
+        if not books:
+            self.show_popup("No books to delete.")
+            return
+
+        layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+
+        for book in books:
+            button = Button(text=f"Delete: {book[1]}",
+                            on_press=lambda btn, book_id=book[0]: self.confirm_delete(book_id),
+                            size_hint=(None, None), size=(250, 50))
+            layout.add_widget(button)
+
+        popup = Popup(title="Select Book to Delete",
+                      content=layout,
+                      size_hint=(None, None), size=(400, 600))
+        popup.open()
+
+    def confirm_delete(self, book_id):
+        db = get_db_connection()
+        cursor = db.cursor()
+        try:
+            cursor.execute("DELETE FROM books WHERE id = %s", (book_id,))
+            db.commit()
+            self.show_popup("Book deleted successfully!")
+        except mysql.connector.Error as err:
+            self.show_popup(f"Error: {err}")
+        finally:
+            cursor.close()
+            db.close()
+
+    def show_popup(self, message):
+        popup = Popup(title='Notification',
+                      content=Label(text=message),
+                      size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+class LibraryManagementSystem(App):
+    def build(self):
+        self.screen_manager = ScreenManager()
+        self.screen_manager.add_widget(LoginScreen(name="login_screen"))
+        self.screen_manager.add_widget(RegisterScreen(name="register_screen"))
+        self.screen_manager.add_widget(UserScreen(name="user_screen"))
+        self.screen_manager.add_widget(AdminScreen(name="admin_screen"))
+        return self.screen_manager
+
+kv = """
+<LoginScreen>:
+    name: "login_screen"
+    canvas.before:
+        Rectangle:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/izo.jpg"
+            size: self.size
+            pos: self.pos
+    FloatLayout:
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/okno.jpg"
+            size_hint: None, None
+            size: "600dp", "400dp"
+            pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        Label:
+            text: "Login"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+            size_hint: None, None
+            size: 200, 50
+            pos_hint: {"center_x": 0.69, "y": 0.63}
+        Label:
+            text: "Hello, Welcome to the library"
+            font_size: "22sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 40
+            pos_hint: {"center_x": 0.32, "y": 0.59}
+        Label:
+            text: "management system!"
+            font_size: "22sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 40
+            pos_hint: {"center_x": 0.32, "y": 0.55}
+        Label:
+            text: "Dont have an account?"
+            font_size: "15sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 40
+            pos_hint: {"center_x": 0.32, "y": 0.49}
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.54}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1  
+            foreground_color: 0, 0, 0, 1  
+            padding: 10, 10  
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.47}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1  
+            foreground_color: 0, 0, 0, 1  
+            padding: 10, 10  
+        Button:
+            text: "Забыл пароль?"
+            size_hint: None, None
+            size: "150dp", "30dp"
+            pos_hint: {"center_x": 0.69, "y": 0.41}
+            background_normal: ''
+            background_color: 0, 0, 0, 0
+            color: 0, 0, 0, 1
+            on_release: root.forgot_password()
+        Button:
+            text: "Login"
+            font_size: "18sp"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            pos_hint: {"center_x": 0.69, "y": 0.33}
+            background_color: 0.2, 0.6, 0.8, 1
+            color: 1, 1, 1, 1
+            on_press: root.login_user()
+        Button:
+            text: "Register"
+            font_size: "18sp"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            pos_hint: {"center_x": 0.33, "y": 0.41}
+            background_color: 0.2, 0.6, 0.8, 1
+            color: 1, 1, 1, 1
+            on_press: app.root.current = "register_screen"
+<RegisterScreen>:
+    name: "register_screen"
+    canvas.before:
+        Rectangle:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/izo.jpg"
+            size: self.size
+            pos: self.pos
+    FloatLayout:
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/okno.jpg"
+            size_hint: None, None
+            size: "600dp", "400dp"
+            pos_hint: {"center_x": 0.5, "center_y": 0.5}
+        Label:
+            text: "Welcome Back!"
+            font_size: "30sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 40
+            pos_hint: {"center_x": 0.32, "y": 0.52}
+        Label:
+            text: "Already have an account?"
+            font_size: "13sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 40
+            pos_hint: {"center_x": 0.32, "y": 0.47}
+        Label:
+            text: "Register"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+            size_hint: None, None
+            size: 200, 50
+            pos_hint: {"center_x": 0.69, "y": 0.63}
+        TextInput:
+            id: username
+            hint_text: "Username"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.54}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        TextInput:
+            id: password
+            hint_text: "Password"
+            multiline: False
+            password: True
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.47}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        TextInput:
+            id: email
+            hint_text: "Email"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.40}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        TextInput:
+            id: sender_password
+            hint_text: "Password (Gmail)"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.69, "y": 0.33}
+            background_normal: ""
+            password: True
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: [10, 10]
+        Button:
+            text: "Register"
+            font_size: "18sp"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            pos_hint: {"center_x": 0.69, "y": 0.23}
+            background_color: 0.2, 0.6, 0.8, 1
+            color: 1, 1, 1, 1
+            on_press: root.register_user()
+        Button:
+            text: "Back to Login"
+            font_size: "18sp"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            pos_hint: {"center_x": 0.32, "y": 0.39}
+            background_color: 0.2, 0.6, 0.8, 1
+            color: 1, 1, 1, 1
+            on_press: app.root.current = "login_screen"
+<UserScreen>:
+    name: "user_screen"
+    canvas.before:
+        Rectangle:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/izo.jpg"
+            size: self.size
+            pos: self.pos
+    FloatLayout:
+        Label:
+            text: "Welcome User!"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+            size_hint: None, None
+            size: 200, 50
+            pos_hint: {"center_x": 0.15, "y": 0.9}
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.38}
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.74}
+        Button:
+            text: 'View My Statistics'
+            size_hint: None, None
+            size: 250, 40
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.71}
+            on_press: root.view_statistics()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.49}
+        Button:
+            text: 'Cancel Reservation'
+            size_hint: None, None
+            size: 250, 40
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.46}
+            on_press: root.cancel_reservation()
+        Button:
+            text: "Show Available Books"
+            size_hint: None, None
+            size: "250dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.35}
+            on_press: root.show_books()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.27}
+        Button:
+            text: "My Books"
+            size_hint: None, None
+            size: "250dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.23}
+            on_press: root.show_reserved_books()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.61}
+        Button:
+            text: "Leave feedback"
+            size_hint: None, None
+            size: "250dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.57}
+            on_release: root.leave_review()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.83, "center_y": 0.09}
+        Button:
+            text: "Log Out"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.83, "y": 0.05}
+            on_press: app.root.current = "login_screen"
+<AdminScreen>:
+    name: "admin_screen"
+    canvas.before:
+        Rectangle:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/izo.jpg"
+            size: self.size
+            pos: self.pos
+    FloatLayout:
+        Label:
+            text: "Welcome Admin!"
+            font_size: "28sp"
+            color: 1, 1, 1, 1
+            size_hint: None, None
+            size: 200, 50
+            pos_hint: {"center_x": 0.15, "y": 0.9}
+        Label:
+            text: "Add New Book"
+            font_size: "20sp"
+            color: 0, 0, 0, 1
+            size_hint: None, None
+            size: 150, 50
+            pos_hint: {"center_x": 0.5, "y": 0.70}
+        TextInput:
+            id: title
+            hint_text: "Book Title"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.5, "y": 0.64}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        TextInput:
+            id: author
+            hint_text: "Author"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.5, "y": 0.56}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        TextInput:
+            id: genre
+            hint_text: "Genre"
+            multiline: False
+            size_hint: None, None
+            size: "250dp", "40dp"
+            pos_hint: {"center_x": 0.5, "y": 0.48}
+            background_normal: ""
+            background_color: 0.9, 0.9, 0.9, 1
+            foreground_color: 0, 0, 0, 1
+            padding: 10, 10
+        Button:
+            text: "Add Book"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0.2, 0.6, 0.8, 1
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.38}
+            on_press: root.add_book()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.72, "center_y": 0.3}  
+        Button:
+            text: "Delete Book"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.72, "y": 0.26}
+            on_press: root.delete_book()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.32, "center_y": 0.3} 
+        Button:
+            text: "View reviews"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.32, "y": 0.26}
+            on_release: root.view_reviews()
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.51, "center_y": 0.15}
+        Image:
+            source: "D:/Bektenova/pythonProjectBektenova/screen/k.jpg"
+            size_hint: None, None
+            size: 185, 92
+            pos_hint: {"center_x": 0.5, "center_y": 0.89}
+        Button:
+            text: "Manage Users"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.5, "y": 0.85}
+            on_press: root.manage_users()
+        Button:
+            text: "Log Out"
+            size_hint: None, None
+            size: "200dp", "50dp"
+            background_color: 0, 0, 0, 0
+            color: 1, 1, 1, 1
+            pos_hint: {"center_x": 0.51, "y": 0.11}
+            on_press: app.root.current = "login_screen"
+
+"""
+if __name__ == "__main__":
+    Builder.load_string(kv)
+    app = LibraryManagementSystem()
+    app.run()
