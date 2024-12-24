@@ -1,0 +1,177 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+import json
+import os
+
+stations = [
+    {"code": 1, "name": "Станция А"},
+    {"code": 2, "name": "Станция Б"},
+]
+
+buses = [
+    {"code": 101, "brand": "MAN", "plate": "AB1234", "capacity": 50},
+    {"code": 102, "brand": "Volvo", "plate": "CD5678", "capacity": 45},
+]
+
+routes = [
+    {"code": 1001, "station_code": 1, "bus_code": 101, "time": "08:00"},
+    {"code": 1002, "station_code": 1, "bus_code": 102, "time": "10:00"},
+    {"code": 1003, "station_code": 2, "bus_code": 101, "time": "12:00"},
+]
+
+def count_routes_by_station():
+    result = {}
+    for station in stations:
+        count = sum(1 for route in routes if route["station_code"] == station["code"])
+        result[station["name"]] = count
+    return result
+
+def calculate_total_passengers():
+    total_passengers = 0
+    for route in routes:
+        bus = next((bus for bus in buses if bus["code"] == route["bus_code"]), None)
+        if bus:
+            total_passengers += bus["capacity"]
+    return total_passengers
+
+def add_new_route(station_code, bus_code, time):
+    try:
+        new_route = {"code": len(routes) + 1001, "station_code": int(station_code), "bus_code": int(bus_code), "time": time}
+        routes.append(new_route)
+        save_data()  
+        messagebox.showinfo("Успех", "Новый рейс успешно добавлен!")
+    except Exception:
+        messagebox.showerror("Ошибка", "Некорректные данные для рейса.")
+
+def load_data():
+    global stations, buses, routes
+    if os.path.exists("data.json"):
+        with open("data.json", "r") as f:
+            data = json.load(f)
+            stations = data.get("stations", [])
+            buses = data.get("buses", [])
+            routes = data.get("routes", [])
+
+def save_data():
+    with open("data.json", "w") as f:
+        json.dump({"stations": stations, "buses": buses, "routes": routes}, f)
+
+class BusStationApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Автовокзал")
+        self.root.geometry("850x600")
+
+        style = ttk.Style()
+        style.configure("TButton", font=("Arial", 12), padding=5)
+        style.configure("Treeview", font=("Arial", 10), rowheight=25)
+
+        ttk.Label(root, text="Система управления автовокзалом", font=("Arial", 16)).pack(pady=10)
+
+        btn_frame = ttk.Frame(root)
+        btn_frame.pack(pady=10)
+
+        ttk.Button(btn_frame, text="Рейсы по станциям", command=self.show_routes_count).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Общее число пассажиров", command=self.show_total_passengers).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Добавить рейс", command=self.add_route_window).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Справка", command=self.show_help).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Управление автобусами", command=self.manage_buses_window).pack(side="left", padx=10)
+
+        ttk.Label(root, text="Список рейсов:", font=("Arial", 14)).pack(pady=10)
+        self.tree = ttk.Treeview(root, columns=("code", "station", "bus", "time"), show="headings")
+        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        for col in ["code", "station", "bus", "time"]:
+            self.tree.heading(col, text=col.capitalize())
+            self.tree.column(col, anchor="center")
+
+        self.populate_tree()
+        load_data()  
+
+    def populate_tree(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        for route in routes:
+            station_name = next((st["name"] for st in stations if st["code"] == route["station_code"]), "Неизвестная")
+            bus_plate = next((bus["plate"] for bus in buses if bus["code"] == route["bus_code"]), "Неизвестная")
+            self.tree.insert("", "end", values=(route["code"], station_name, bus_plate, route["time"]))
+
+    def show_routes_count(self):
+        result = count_routes_by_station()
+        output = "\n".join(f"{station}: {count} рейсов" for station, count in result.items())
+        messagebox.showinfo("Количество рейсов", output)
+
+    def show_total_passengers(self):
+        total = calculate_total_passengers()
+        messagebox.showinfo("Общее количество пассажиров", f"Общее количество пассажиров: {total}")
+
+    def add_route_window(self):
+        window = tk.Toplevel(self.root)
+        window.title("Добавить новый рейс")
+        window.geometry("300x300")
+
+        ttk.Label(window, text="Код станции:").pack(pady=5)
+        station_entry = ttk.Entry(window)
+        station_entry.pack(pady=5)
+
+        ttk.Label(window, text="Код автобуса:").pack(pady=5)
+        bus_entry = ttk.Entry(window)
+        bus_entry.pack(pady=5)
+
+        ttk.Label(window, text="Время отправления:").pack(pady=5)
+        time_entry = ttk.Entry(window)
+        time_entry.pack(pady=5)
+
+        btn_frame = ttk.Frame(window)
+        btn_frame.pack(pady=10)
+
+        ttk.Button(btn_frame, text="Добавить", command=lambda: self.add_route_action(window, station_entry, bus_entry, time_entry)).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Назад", command=window.destroy).pack(side="left", padx=5)
+
+    def add_route_action(self, window, station_entry, bus_entry, time_entry):
+        add_new_route(station_entry.get(), bus_entry.get(), time_entry.get())
+        self.populate_tree()
+        window.destroy()
+
+    def show_help(self):
+        window = tk.Toplevel(self.root)
+        window.title("Справка")
+        window.geometry("400x300")
+
+        help_text = (
+            "Добро пожаловать в систему управления автовокзалом!\n\n"
+            "Доступные функции:\n"
+            "- Просмотр количества рейсов по станциям.\n"
+            "- Расчет общего числа пассажиров.\n"
+            "- Добавление нового рейса.\n"
+            "- Управление автобусами.\n\n"
+            "Для управления данными воспользуйтесь соответствующими кнопками."
+        )
+        ttk.Label(window, text=help_text, wraplength=380, justify="left").pack(pady=10, padx=10)
+        ttk.Button(window, text="Назад", command=window.destroy).pack(pady=10)
+
+    def manage_buses_window(self):
+        window = tk.Toplevel(self.root)
+        window.title("Управление автобусами")
+        window.geometry("400x400")
+
+        ttk.Label(window, text="Список автобусов:", font=("Arial", 14)).pack(pady=10)
+        tree = ttk.Treeview(window, columns=("code", "brand", "plate", "capacity"), show="headings")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        for col in ["code", "brand", "plate", "capacity"]:
+            tree.heading(col, text=col.capitalize())
+            tree.column(col, anchor="center")
+
+        for bus in buses:
+            tree.insert("", "end", values=(bus["code"], bus["brand"], bus["plate"], bus["capacity"]))
+
+        btn_frame = ttk.Frame(window)
+        btn_frame.pack(pady=10)
+
+        ttk.Button(btn_frame, text="Назад", command=window.destroy).pack(side="left", padx=5)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = BusStationApp(root)
+    root.mainloop()
