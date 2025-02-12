@@ -1,0 +1,216 @@
+import customtkinter as ctk
+from tkinter import messagebox, filedialog, StringVar
+
+class ToDoApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("To-Do List")
+        self.root.geometry("920x750")
+
+        self.theme_mode = "dark"
+        ctk.set_appearance_mode(self.theme_mode)
+        ctk.set_default_color_theme("blue")
+
+        self.tasks = {"Работа": [], "Личное": [], "Учеба": []}
+        self.current_tab = "Работа"
+
+        self.header_frame = ctk.CTkFrame(root)
+        self.header_frame.pack(pady=10, padx=10, fill="x")
+
+        self.tab_view = ctk.CTkTabview(root)
+        self.tab_view.pack(pady=10, padx=10, fill="both", expand=True)
+        self.tab_view.add("Работа")
+        self.tab_view.add("Личное")
+        self.tab_view.add("Учеба")
+        self.tab_view.set("Работа")
+
+        self.tab_view.configure(command=self.on_tab_change)
+
+        self.input_frame = ctk.CTkFrame(root)
+        self.input_frame.pack(pady=10, padx=10, fill="x")
+
+        self.task_frame = ctk.CTkScrollableFrame(root)
+        self.task_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        self.filter_frame = ctk.CTkFrame(root)
+        self.filter_frame.pack(pady=10, padx=10, fill="x")
+
+        self.button_frame = ctk.CTkFrame(root)
+        self.button_frame.pack(pady=10, padx=10, fill="x")
+
+        self.task_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Введите задачу", width=400)
+        self.task_entry.pack(side="left", padx=5, fill="x", expand=True)
+
+        self.add_button = ctk.CTkButton(self.input_frame, text="➕", width=50, command=self.add_task)
+        self.add_button.pack(side="left", padx=5)
+
+        self.filter_status = StringVar(value="all")
+        self.filter_label = ctk.CTkLabel(self.filter_frame, text="Фильтр:")
+        self.filter_label.pack(side="left", padx=5)
+
+        self.filter_all = ctk.CTkRadioButton(self.filter_frame, text="Все", variable=self.filter_status, value="all", command=self.filter_tasks)
+        self.filter_all.pack(side="left", padx=5)
+
+        self.filter_completed = ctk.CTkRadioButton(self.filter_frame, text="Выполненные", variable=self.filter_status, value="completed", command=self.filter_tasks)
+        self.filter_completed.pack(side="left", padx=5)
+
+        self.filter_pending = ctk.CTkRadioButton(self.filter_frame, text="Невыполненные", variable=self.filter_status, value="pending", command=self.filter_tasks)
+        self.filter_pending.pack(side="left", padx=5)
+
+        self.edit_button = ctk.CTkButton(self.button_frame, text="✏️ Редактировать", command=self.edit_task)
+        self.edit_button.pack(side="left", padx=5)
+
+        self.complete_button = ctk.CTkButton(self.button_frame, text="✅ Выполнено", command=self.complete_task)
+        self.complete_button.pack(side="left", padx=5)
+
+        self.delete_button = ctk.CTkButton(self.button_frame, text="🗑️ Удалить", command=self.delete_task)
+        self.delete_button.pack(side="left", padx=5)
+
+        self.clear_button = ctk.CTkButton(self.button_frame, text="🧹 Очистить список", command=self.clear_tasks)
+        self.clear_button.pack(side="left", padx=5)
+
+        self.export_button = ctk.CTkButton(self.button_frame, text="📤 Экспорт", command=self.export_tasks)
+        self.export_button.pack(side="left", padx=5)
+
+        self.import_button = ctk.CTkButton(self.button_frame, text="📥 Импорт", command=self.import_tasks)
+        self.import_button.pack(side="left", padx=5)
+
+        self.theme_button = ctk.CTkButton(self.header_frame, text="🌙 Сменить тему", command=self.toggle_theme)
+        self.theme_button.pack(side="right", padx=10)
+
+        self.load_tasks()
+
+    def on_tab_change(self):
+        self.current_tab = self.tab_view.get()
+        self.update_task_listbox()
+
+    def add_task(self):
+        task = self.task_entry.get()
+        if task:
+            self.tasks[self.current_tab].append({"task": task, "completed": False})
+            self.task_entry.delete(0, "end")
+            self.update_task_listbox()
+            self.save_tasks()
+        else:
+            messagebox.showwarning("Предупреждение", "Введите задачу!")
+
+    def edit_task(self):
+        selected_task = self.get_selected_task()
+        if selected_task:
+            new_task = ctk.CTkInputDialog(text="Редактировать задачу:", title="Редактирование").get_input()
+            if new_task:
+                selected_task["task"] = new_task
+                self.update_task_listbox()
+                self.save_tasks()
+        else:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для редактирования!")
+
+    def complete_task(self):
+        selected_task = self.get_selected_task()
+        if selected_task:
+            selected_task["completed"] = True
+            self.update_task_listbox()
+            self.save_tasks()
+        else:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для отметки!")
+
+    def delete_task(self):
+        selected_task = self.get_selected_task()
+        if selected_task:
+            self.tasks[self.current_tab].remove(selected_task)
+            self.update_task_listbox()
+            self.save_tasks()
+        else:
+            messagebox.showwarning("Предупреждение", "Выберите задачу для удаления!")
+
+    def clear_tasks(self):
+        self.tasks[self.current_tab] = []
+        self.update_task_listbox()
+        self.save_tasks()
+
+    def filter_tasks(self):
+        self.update_task_listbox()
+
+    def update_task_listbox(self):
+        for widget in self.task_frame.winfo_children():
+            widget.destroy()
+
+        for task in self.tasks[self.current_tab]:
+            if self.filter_status.get() == "all" or \
+               (self.filter_status.get() == "completed" and task["completed"]) or \
+               (self.filter_status.get() == "pending" and not task["completed"]):
+                status = "✓" if task["completed"] else "◻"
+                task_text = f"{status} {task['task']}"
+                task_label = ctk.CTkLabel(self.task_frame, text=task_text)
+                task_label.pack(fill="x", pady=2)
+                task_label.bind("<Button-1>", lambda e, t=task: self.select_task(t))
+
+    def select_task(self, task):
+        self.selected_task = task
+
+    def get_selected_task(self):
+        if hasattr(self, "selected_task"):
+            return self.selected_task
+        return None
+
+    def save_tasks(self):
+        with open("tasks.txt", "w") as file:
+            for category, tasks in self.tasks.items():
+                file.write(f"{category}:\n")
+                for task in tasks:
+                    file.write(f"{task['task']}|{task['completed']}\n")
+
+    def load_tasks(self):
+        try:
+            with open("tasks.txt", "r") as file:
+                current_category = None
+                for line in file:
+                    line = line.strip()
+                    if line.endswith(":"):
+                        current_category = line.strip(":")
+                        if current_category not in self.tasks:
+                            self.tasks[current_category] = []
+                    else:
+                        task_data = line.split("|")
+                        if len(task_data) == 2 and current_category is not None:
+                            self.tasks[current_category].append({"task": task_data[0], "completed": task_data[1] == "True"})
+                self.update_task_listbox()
+        except FileNotFoundError:
+            pass
+
+    def export_tasks(self):
+        file_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")])
+        if file_path:
+            with open(file_path, "w") as file:
+                for category, tasks in self.tasks.items():
+                    file.write(f"{category}:\n")
+                    for task in tasks:
+                        file.write(f"{task['task']}|{task['completed']}\n")
+
+    def import_tasks(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
+        if file_path:
+            with open(file_path, "r") as file:
+                self.tasks = {"Работа": [], "Личное": [], "Учеба": []}
+                current_category = None
+                for line in file:
+                    line = line.strip()
+                    if line.endswith(":"):
+                        current_category = line.strip(":")
+                        if current_category not in self.tasks:
+                            self.tasks[current_category] = []
+                    else:
+                        task_data = line.split("|")
+                        if len(task_data) == 2 and current_category is not None:
+                            self.tasks[current_category].append({"task": task_data[0], "completed": task_data[1] == "True"})
+                self.update_task_listbox()
+
+    def toggle_theme(self):
+        self.theme_mode = "light" if self.theme_mode == "dark" else "dark"
+        ctk.set_appearance_mode(self.theme_mode)
+        self.theme_button.configure(text="🌞 Сменить тему" if self.theme_mode == "light" else "🌙 Сменить тему")
+
+if __name__ == "__main__":
+    root = ctk.CTk()
+    app = ToDoApp(root)
+    root.mainloop()
