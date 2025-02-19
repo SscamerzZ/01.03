@@ -1,0 +1,63 @@
+import mysql.connector
+import customtkinter as ctk
+from tkinter import ttk
+
+
+class EmployeeApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("Система учёта задач сотрудников")
+        self.geometry("900x600")
+        self.configure(fg_color=("#2E2E2E"))
+
+        self.db = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            database="employees_tasks"
+        )
+        self.cursor = self.db.cursor()
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        frame = ctk.CTkFrame(self, fg_color=("#3E3E3E"), corner_radius=10)
+        frame.pack(pady=20, padx=20, fill="both", expand=True)
+
+        self.label = ctk.CTkLabel(frame, text="Задачи сотрудников", font=("Arial", 22, "bold"))
+        self.label.pack(pady=10)
+
+        button_frame = ctk.CTkFrame(frame, fg_color=("#4E4E4E"), corner_radius=10)
+        button_frame.pack(pady=10, padx=10, fill="x")
+
+        self.view_tasks_button = ctk.CTkButton(button_frame, text="Просмотр представления", command=self.view_tasks)
+        self.view_tasks_button.pack(side="left", padx=10, pady=10)
+
+        self.run_proc_button = ctk.CTkButton(button_frame, text="Выполнить хранимую процедуру",
+                                             command=self.run_procedure)
+        self.run_proc_button.pack(side="left", padx=10, pady=10)
+
+        self.tree = ttk.Treeview(frame, columns=("Должность", "Количество задач"), show="headings")
+        self.tree.heading("Должность", text="Должность")
+        self.tree.heading("Количество задач", text="Количество задач")
+        self.tree.pack(pady=10, padx=10, fill="both", expand=True)
+
+    def view_tasks(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        self.cursor.execute("SELECT * FROM new_tasks_per_position")
+        results = self.cursor.fetchall()
+        for row in results:
+            self.tree.insert("", "end", values=row)
+
+    def run_procedure(self):
+        self.cursor.callproc("EmployeePerformance")
+        for result in self.cursor.stored_results():
+            for row in result.fetchall():
+                self.tree.insert("", "end", values=row)
+
+
+if __name__ == "__main__":
+    app = EmployeeApp()
+    app.mainloop()
