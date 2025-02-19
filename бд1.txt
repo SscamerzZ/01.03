@@ -1,0 +1,67 @@
+CREATE DATABASE employees_tasks;
+USE employees_tasks;
+
+CREATE TABLE positions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE employees (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    position_id INT,
+    FOREIGN KEY (position_id) REFERENCES positions(id)
+);
+
+CREATE TABLE tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    employee_id INT,
+    status ENUM('поступила', 'в работе', 'провал', 'завершена успешно') NOT NULL,
+    days_late INT DEFAULT 0,
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+);
+
+CREATE VIEW new_tasks_per_position AS
+SELECT p.name AS Должность, COUNT(t.id) AS Количество_задач
+FROM tasks t
+JOIN employees e ON t.employee_id = e.id
+JOIN positions p ON e.position_id = p.id
+WHERE t.status = 'поступила'
+GROUP BY p.name
+ORDER BY Количество_задач DESC;
+
+DELIMITER //
+CREATE PROCEDURE EmployeePerformance()
+BEGIN
+    SELECT e.name AS Сотрудник, p.name AS Должность, 
+           COUNT(t.id) AS Общее_количество_задач,
+           IF(SUM(t.status = 'провал') > 2, 'выговор', 'премия') AS Резюме
+    FROM employees e
+    JOIN tasks t ON e.id = t.employee_id
+    JOIN positions p ON e.position_id = p.id
+    GROUP BY e.id, e.name, p.name;
+END //
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER update_days_late
+BEFORE UPDATE ON tasks
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'завершена успешно' AND NEW.days_late < 0 THEN
+        SET NEW.days_late = 0;
+    END IF;
+END //
+DELIMITER ;
+
+INSERT INTO positions (name) VALUES ('Менеджер'), ('Разработчик'), ('Аналитик');
+INSERT INTO employees (name, position_id) VALUES ('Иван Иванов', 1), ('Петр Петров', 2), ('Сергей Сергеев', 3);
+INSERT INTO tasks (name, employee_id, status, days_late) VALUES
+('Задача 1', 1, 'поступила', 0),
+('Задача 2', 2, 'провал', 3),
+('Задача 3', 2, 'завершена успешно', 2),
+('Задача 4', 3, 'провал', 5),
+('Задача 5', 3, 'провал', 1);
+
+CALL EmployeePerformance();
