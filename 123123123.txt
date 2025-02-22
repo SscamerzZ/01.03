@@ -1,0 +1,118 @@
+import customtkinter as ctk
+import mysql.connector
+from PIL import Image
+import os
+from tkinter import filedialog, messagebox
+from tkinter import ttk  # Import the Treeview widget
+
+conn = mysql.connector.connect(host='localhost', user='root', password='', database='shop_db')
+cursor = conn.cursor()
+
+ctk.set_appearance_mode("dark")
+
+class MasterApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("Мастер - Магазин")
+        self.geometry("700x500")
+        self.page = 0
+
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True)
+
+        self.top_frame = ctk.CTkFrame(self.main_container, fg_color="#1E1E1E", corner_radius=10)
+        self.top_frame.pack(pady=10, padx=10, fill='x')
+
+        self.logo_label = ctk.CTkLabel(self.top_frame, image=ctk.CTkImage(Image.open("logo.png"), size=(50, 50)), text="")
+        self.logo_label.pack(side='left', padx=10, pady=10)
+
+        ctk.CTkLabel(self.top_frame, text="Shop", font=("Arial", 20, "bold"), text_color="white").pack(side='left', padx=10)
+
+        self.main_frame = ctk.CTkFrame(self.main_container, fg_color="#3E3E3E", corner_radius=10)
+        self.main_frame.pack(pady=10, padx=10, fill='both', expand=True)
+
+        self.product_labels, self.image_labels, self.product_ids = [], [], []
+
+        for i in range(3):
+            frame = ctk.CTkFrame(self.main_frame, fg_color="#1E1E1E", corner_radius=10)
+            frame.pack(pady=10, padx=20, fill='x')
+
+            label = ctk.CTkLabel(frame, text="Товар", font=("Arial", 16, "bold"), text_color="white")
+            label.pack(side='left', padx=10, pady=10)
+            self.product_labels.append(label)
+
+            img_label = ctk.CTkLabel(frame, text="")
+            img_label.pack(side='right', padx=10, pady=10)
+            self.image_labels.append(img_label)
+
+        # Add table frame
+        table_frame = ctk.CTkFrame(self.main_container, fg_color="#2E2E2E", corner_radius=10)
+        table_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Add Treeview (table) for displaying product data
+        self.tree = ttk.Treeview(table_frame, columns=("ID", "Product", "Image"), show="headings")
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Product", text="Product")
+        self.tree.heading("Image", text="Image Path")
+        self.tree.pack(fill="both", expand=True)
+
+        button_frame = ctk.CTkFrame(self.main_container, fg_color="#2E2E2E")
+        button_frame.pack(pady=10)
+        ctk.CTkButton(button_frame, text="<", command=self.prev_page).pack(side='left', padx=10)
+        ctk.CTkButton(button_frame, text=">", command=self.next_page).pack(side='right', padx=10)
+
+        self.load_products()
+
+    def load_products(self):
+        cursor.execute("SELECT id, name, image FROM products LIMIT 3 OFFSET %s", (self.page * 3,))
+        products = cursor.fetchall()
+        default_img = ctk.CTkImage(light_image=Image.open("default.png"), size=(60, 60))
+
+        self.product_ids = []
+        for i, label in enumerate(self.product_labels):
+            if i < len(products):
+                prod_id, name, image_path = products[i]
+                image = ctk.CTkImage(light_image=Image.open(image_path), size=(60, 60)) if image_path and os.path.exists(image_path) else default_img
+                self.product_ids.append(prod_id)
+            else:
+                name, image = "Недоступен", default_img
+                self.product_ids.append(None)
+
+            label.configure(text=name)
+            self.image_labels[i].configure(image=image)
+            self.image_labels[i].image = image
+
+        # Clear the treeview and insert new rows
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        
+        # Insert data into the table (Treeview)
+        for prod_id, name, image_path in products:
+            self.tree.insert("", "end", values=(prod_id, name, image_path))
+
+    def next_page(self):
+        cursor.execute("SELECT COUNT(*) FROM products")
+        if (self.page + 1) * 3 < cursor.fetchone()[0]:
+            self.page += 1
+            self.load_products()
+
+    def prev_page(self):
+        if self.page > 0:
+            self.page -= 1
+            self.load_products()
+
+if __name__ == "__main__":
+    root = ctk.CTk()
+    login_window = LoginWindow(root)
+    root.withdraw()
+    login_window.wait_window()
+    
+    role = login_window.get_role()
+    if role == "Admin":
+        app = AdminApp()
+    elif role == "Master":
+        app = MasterApp()
+    app.mainloop()
+
+cursor.close()
+conn.close()
